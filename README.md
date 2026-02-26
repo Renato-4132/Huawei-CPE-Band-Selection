@@ -1,4 +1,5 @@
-![555256718-42c1ff3d-68a1-4c4f-b2b1-aa8350bb1365](https://github.com/user-attachments/assets/8afb65bc-742d-4eaa-b4b5-1f9e8b04bdfb)
+
+![Senza titolo](https://github.com/user-attachments/assets/341e4254-969c-49bc-9e3c-73ab8e8ab4f6)
 
 🇮🇹 Italiano: Descrizione del Progetto Cos'è questo script?
 
