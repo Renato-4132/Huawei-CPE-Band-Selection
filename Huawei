@@ -1,0 +1,182 @@
+javascript:(function() {
+        if (document.getElementById("hack-bar")) document.getElementById("hack-bar").remove();
+        
+        window.getLteBandsFromMask = function(maskHex) {
+                if (!maskHex || maskHex.toUpperCase() === "7FFFFFFFFFFFFFFF" || maskHex === "0") return "AUTO";
+                try {
+                        let mask = BigInt("0x" + maskHex);
+                        let bands = [];
+                        for (let i = 0; i < 64; i++) {
+                                if ((mask >> BigInt(i)) & 1n) bands.push(i + 1);
+                        }
+                        return bands.length > 0 ? bands.join(",") : "AUTO";
+                } catch (e) { return "AUTO"; }
+        };
+
+        window.getNrBandsFromMask = function(maskHex) {
+                let m = maskHex.toUpperCase();
+                if (!m || m === "---" || m === "0" || m === "4000000000000000006") return "";
+                if (m.includes("20000000000000000000")) return "n78";
+                try {
+                        let mask = BigInt("0x" + m);
+                        let bands = [];
+                        for (let i = 0; i < 256; i++) {
+                                if ((mask >> BigInt(i)) & 1n) bands.push("n" + (i + 1));
+                        }
+                        return bands.length > 0 ? bands.join(",") : "";
+                } catch (e) { return ""; }
+        };
+
+        window.extract = function(tag, data) {
+                var re = new RegExp('<' + tag + '>(.*?)<\/' + tag + '>', 'i');
+                var m = data.match(re);
+                return (m && m[1]) ? m[1] : "---";
+        };
+
+        window.sendNetMode = function(mode, lte, nr, msg) {
+                fetch('/html/home.html').then(r => r.text()).then(h => {
+                        var tok = h.split('name="csrf_token" content="')[1].split('"')[0];
+                        var xml = '<request><NetworkMode>' + mode + '</NetworkMode><NetworkBand>3FFFFFFFFFFFFFFF</NetworkBand><LTEBand>' + lte + '</LTEBand><NRBand>' + nr + '</NRBand></request>';
+                        fetch('/api/net/net-mode', {
+                                method: 'POST',
+                                headers: { '__RequestVerificationToken': tok, 'Content-Type': 'application/xml' },
+                                body: xml
+                        }).then(() => {
+                                alert("CPE: " + msg);
+                                setTimeout(window.update, 1500);
+                        });
+                });
+        };
+
+        window.addB = function(b) {
+                var i = document.getElementById('inp-lte');
+                var v = i.value.trim();
+                var current = v ? v.split(',') : [];
+                if (current.indexOf(b) === -1) {
+                        current.push(b);
+                        i.value = current.join(',');
+                }
+        };
+
+        window.applyB = function() {
+                var val = document.getElementById('inp-lte').value.split(',');
+                var lteMask = 0n;
+                var nrMask = 0n;
+                val.forEach(n => {
+                        let s = n.trim().toLowerCase();
+                        if (s.startsWith('n')) {
+                                let num = parseInt(s.substring(1));
+                                if (!isNaN(num)) nrMask += (1n << (BigInt(num) - 1n));
+                        } else {
+                                let num = parseInt(s);
+                                if (!isNaN(num)) lteMask += (1n << (BigInt(num) - 1n));
+                        }
+                });
+                let finalLte = lteMask === 0n ? '7FFFFFFFFFFFFFFF' : lteMask.toString(16);
+                let finalNr = nrMask === 0n ? '4000000000000000006' : nrMask.toString(16);
+                window.sendNetMode('00', finalLte, finalNr, 'BANDS: ' + val.join(','));
+        };
+
+        window.update = function() {
+                if (document.getElementById('t-content').style.display === 'none') return;
+                fetch('/api/device/signal').then(r => r.text()).then(d => {
+                        var sigs = [
+                                {id:'rsrp', t:'rsrp', min:-125, max:-65}, {id:'rsrq', t:'rsrq', min:-20, max:-3}, {id:'sinr', t:'sinr', min:-5, max:30},
+                                {id:'nrsrp', t:'nrrsrp', min:-125, max:-65}, {id:'nrsrq', t:'nrrsrq', min:-20, max:-3}, {id:'nsinr', t:'nrsinr', min:-5, max:30}
+                        ];
+                        sigs.forEach(s => {
+                                var v = extract(s.t, d);
+                                if (v === "---" && s.t === "nrrsrp") v = extract("nr_rsrp", d);
+                                document.getElementById('v-' + s.id).innerHTML = v + (s.id.includes('rsrp') ? ' dBm' : (s.id.includes('sinr') ? ' dB' : ''));
+                                var pc = ((parseFloat(v) - s.min) / (s.max - s.min)) * 100;
+                                pc = Math.max(0, Math.min(100, pc));
+                                var bar = document.getElementById('b-' + s.id);
+                                if (bar) { bar.style.width = pc + "%"; bar.style.backgroundColor = pc < 40 ? "#f00" : (pc < 75 ? "#fa0" : "#0f0"); }
+                        });
+                        var cid = extract('cell_id', d);
+                        var plmn = extract('plmn', d) || "22288";
+                        if (cid !== "---") {
+                                var hex = Number(cid).toString(16);
+                                var enb = parseInt(hex.substring(0, hex.length - 2), 16);
+                                document.getElementById('v-enb').innerHTML = '<a href="https://www.lteitaly.it/it/internal/map.php#bts='+plmn+'.'+enb+'" target="_blank" style="color:#0f0;text-decoration:none;">'+enb+'</a>';
+                                document.getElementById('v-cell').innerHTML = cid;
+                        }
+                        document.getElementById('v-pci').innerHTML = extract('pci', d);
+                        var bFull = extract('band', d);
+                        document.getElementById('v-band-full').innerHTML = bFull;
+
+                        /* Tenta di estrarre n78 dalla stringa Band se non appare in Config */
+                        fetch('/api/net/net-mode').then(r => r.text()).then(nm => {
+                                var lteM = extract('LTEBand', nm);
+                                var nrM = extract('NRBand', nm);
+                                var display = document.getElementById('v-sel-bands');
+                                let lteL = window.getLteBandsFromMask(lteM);
+                                let nrL = window.getNrBandsFromMask(nrM);
+                                
+                                if (!nrL && bFull.toLowerCase().includes("n78")) nrL = "n78";
+                                
+                                let combined = [];
+                                if (lteL !== "AUTO") combined.push(lteL);
+                                if (nrL !== "") combined.push(nrL);
+                                display.innerHTML = combined.length === 0 ? "AUTO" : combined.join(",");
+                                display.style.color = combined.length === 0 ? "#0f0" : "#0af";
+                        });
+                });
+        };
+
+        window.toggleMenu = function() {
+                var c = document.getElementById('t-content');
+                var b = document.getElementById('t-toggle');
+                var isH = c.style.display === 'none';
+                c.style.display = isH ? 'block' : 'none';
+                b.innerHTML = isH ? 'HIDE MENU ▲' : 'SHOW MENU ▼';
+                b.style.background = isH ? '#444' : '#d00';
+                if(isH) {
+                        fetch('/api/device/information').then(r => r.text()).then(d => {
+                                document.getElementById('v-model').innerHTML = extract('DeviceName', d);
+                                document.getElementById('v-sw').innerHTML = extract('SoftwareVersion', d);
+                                document.getElementById('v-hw').innerHTML = extract('HardwareVersion', d);
+                                document.getElementById('v-imei').innerHTML = extract('Imei', d);
+                        });
+                        window.update();
+                }
+        };
+
+        (function() {
+                var style = "<style>#hack-bar{position:fixed;top:0;left:0;width:100%;z-index:999999;font-family:sans-serif;background:rgba(0,0,0,0.95);color:#fff;border-bottom:2px solid #f00;} #t-toggle{width:100%;padding:8px;text-align:center;cursor:pointer;font-weight:bold;background:#d00;font-size:14px;} #t-content{display:none;padding:20px;box-sizing:border-box;} .grid{display:flex;gap:15px;flex-wrap:wrap;} .box{flex:1;min-width:250px;background:#111;padding:15px;border-radius:10px;border:1px solid #333;} .title{font-size:16px;font-weight:bold;margin-bottom:10px;border-bottom:1px solid #444;padding-bottom:5px;color:#f00;} .val{color:#0f0;font-weight:bold;font-size:16px;float:right;} .bb-w{width:100%;height:8px;background:#222;border-radius:4px;margin:6px 0;overflow:hidden;} .bb-f{height:100%;transition:0.5s;} .cmd-grid{display:grid;grid-template-columns:repeat(2, 1fr);gap:8px;margin-top:10px;} .btn{padding:10px;text-align:center;cursor:pointer;border-radius:6px;font-weight:bold;background:#222;border:1px solid #444;font-size:11px;} .btn-force{background:#c00;} .btn-blue{background:#0055ff;} .btn-green{background:#008000;} .hw-line{font-size:12px; margin-bottom:4px; color:#ccc;} .hw-val{color:#fff; font-weight:bold; float:right;} .b-btn{cursor:pointer;background:#333;padding:4px 8px;border-radius:3px;border:1px solid #555;font-weight:normal;color:#ccc;display:inline-block;margin-right:4px;text-align:center;font-size:11px;} .b-btn:hover{background:#555;color:#fff;} .b-lbl{color:#888;font-style:italic;margin-right:5px;font-size:11px;min-width:120px;display:inline-block;}</style>";
+                var html = '<div id="hack-bar">' +
+                        '<div id="t-toggle" onclick="toggleMenu()">SHOW MENU ▼</div>' +
+                        '<div id="t-content">' +
+                        '<div class="grid">' +
+                        '<div class="box"><div class="title">4G SIGNAL</div>RSRP: <span id="v-rsrp" class="val"></span><div class="bb-w"><div id="b-rsrp" class="bb-f"></div></div>RSRQ: <span id="v-rsrq" class="val"></span><div class="bb-w"><div id="b-rsrq" class="bb-f"></div></div>SINR: <span id="v-sinr" class="val"></span><div class="bb-w"><div id="b-sinr" class="bb-f"></div></div></div>' +
+                        '<div class="box"><div class="title">5G SIGNAL</div>NR RSRP: <span id="v-nrsrp" class="val"></span><div class="bb-w"><div id="b-nrsrp" class="bb-f"></div></div>NR RSRQ: <span id="v-nrsrq" class="val"></span><div class="bb-w"><div id="b-nrsrq" class="bb-f"></div></div>NR SINR: <span id="v-nsinr" class="val"></span><div class="bb-w"><div id="b-nsinr" class="bb-f"></div></div></div>' +
+                        '<div class="box"><div class="title">HARDWARE INFO</div>' +
+                        '<div class="hw-line">Model: <span id="v-model" class="hw-val"></span></div>' +
+                        '<div class="hw-line">Software: <span id="v-sw" class="hw-val"></span></div>' +
+                        '<div class="hw-line">Hardware: <span id="v-hw" class="hw-val"></span></div>' +
+                        '<div class="hw-line">IMEI: <span id="v-imei" class="hw-val"></span></div>' +
+                        '<div class="cmd-grid" style="margin-top:20px;"><div class="btn" style="background:#444;grid-column: span 2;" onclick="reboot()">REBOOT ROUTER</div></div></div>' +
+                        '<div class="box"><div class="title">CELL & BANDS</div>' +
+                        'ENB ID: <span id="v-enb" style="color:#0f0;font-weight:bold;"></span><br>CELL ID: <span id="v-cell" style="color:#0f0;"></span><br>PCI: <span id="v-pci" style="color:#0f0;"></span><br>' +
+                        'ROUTER CONFIG: <span id="v-sel-bands" style="font-weight:bold;color:#0af;"></span><br>' +
+                        'ACTIVE NOW: <span id="v-band-full" style="color:#ff0;font-size:11px;"></span>' +
+                        '<div class="cmd-grid">' +
+                        '<div class="btn btn-force" onclick="sendNetMode(\'00\',\'7FFFFFFFFFFFFFFF\',\'20000000000000000000\',\'FORCE N78\')">N78</div>' +
+                        '<div class="btn btn-blue" onclick="sendNetMode(\'03\',\'7FFFFFFFFFFFFFFF\',\'0\',\'FORCE 4G\')">4G ONLY</div>' +
+                        '<div class="btn btn-green" onclick="document.getElementById(\'inp-lte\').value=\'\';sendNetMode(\'00\',\'7FFFFFFFFFFFFFFF\',\'4000000000000000006\',\'AUTO\')">AUTO</div>' +
+                        '<div class="btn" onclick="applyB()">SET BANDS</div></div>' +
+                        '<input id="inp-lte" type="text" style="width:100%; margin-top:10px; padding:6px; background:#000; color:#0f0; border:1px solid #444; border-radius:4px; box-sizing:border-box;" placeholder="e.g. 1,3,n78"></div></div>' +
+                        '<div class="box" style="margin-top:15px;">' +
+                        '<div style="color:#ff0; font-weight:bold; font-size:12px; margin-bottom:10px;">SINR LEGEND: <span style="color:#0f0; margin-left:10px;">&gt;20 Excellent</span> <span style="color:#fa0; margin-left:10px;">13-20 Good</span> <span style="color:#f70; margin-left:10px;">0-13 Mid</span> <span style="color:#f00; margin-left:10px;">&lt;=0 Poor</span></div>' +
+                        '<div style="display:flex; flex-direction:column; gap:8px;">' +
+                        '<div><span style="font-weight:bold; color:#fff; display:inline-block; width:40px; font-size:11px;">4G:</span>' +
+                        '<span class="b-lbl">Standard:</span> <span class="b-btn" onclick="addB(\'1\')">B1</span><span class="b-btn" onclick="addB(\'3\')">B3</span><span class="b-btn" onclick="addB(\'7\')">B7</span><span class="b-btn" onclick="addB(\'20\')">B20</span><span class="b-btn" onclick="addB(\'28\')">B28</span><span class="b-btn" onclick="addB(\'32\')">B32</span></div>' +
+                        '<div><span style="font-weight:bold; color:#fff; display:inline-block; width:40px; font-size:11px;">TDD:</span>' +
+                        '<span class="b-lbl">Capacity:</span> <span class="b-btn" onclick="addB(\'34\')">B34</span><span class="b-btn" onclick="addB(\'38\')">B38</span><span class="b-btn" onclick="addB(\'39\')">B39</span><span class="b-btn" onclick="addB(\'40\')">B40</span><span class="b-btn" onclick="addB(\'41\')">B41</span><span class="b-btn" onclick="addB(\'42\')">B42</span><span class="b-btn" onclick="addB(\'43\')">B43</span></div>' +
+                        '<div><span style="font-weight:bold; color:#0af; display:inline-block; width:40px; font-size:11px;">5G:</span>' +
+                        '<span class="b-lbl">Ultra/DSS:</span> <span class="b-btn" onclick="addB(\'n1\')">N1</span><span class="b-btn" onclick="addB(\'n3\')">N3</span><span class="b-btn" onclick="addB(\'n7\')">N7</span><span class="b-btn" onclick="addB(\'n28\')">N28</span><span class="b-btn" onclick="addB(\'n78\')">N78</span></div>' +
+                        '</div></div></div></div>';
+                document.body.insertAdjacentHTML("afterbegin", style + html);
+                setInterval(update, 2000);
+        })();
+})();
