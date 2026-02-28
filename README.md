@@ -1,5 +1,6 @@
 
-![Senza titolo](https://github.com/user-attachments/assets/341e4254-969c-49bc-9e3c-73ab8e8ab4f6)
+
+<img width="1559" height="363" alt="Schermata del 2026-02-28 12-26-50" src="https://github.com/user-attachments/assets/b99d1c5c-f419-4bbe-a0f5-8aee03338c24" />
 
 🇮🇹 Italiano: Descrizione del Progetto Cos'è questo script?
 
