@@ -1,0 +1,235 @@
+javascript:(function() {
+        try { if (document.getElementById("hack-bar")) document.getElementById("hack-bar").remove(); } catch (e) {}
+        window.hInterval = setInterval(() => { if(window.update) window.update(); }, 2000);
+        window.exitHack = function() {
+                if (confirm("Close Huawei HackBand and reset the page ?")) {
+                        clearInterval(window.hInterval);
+                        let el = document.getElementById("hack-bar");
+                        if (el) el.remove();
+                        if (window.analyticsWin && !window.analyticsWin.closed) window.analyticsWin.close();
+                        window.update = null;
+                }
+        };
+        window.sendNetMode = function(mode, lte, nr, msg) {
+                fetch('/html/home.html').then(r => r.text()).then(h => {
+                        var tok = h.split('name="csrf_token" content="')[1].split('"')[0];
+                        var xml = '<request><NetworkMode>' + mode + '</NetworkMode><NetworkBand>3FFFFFFFFFFFFFFF</NetworkBand><LTEBand>' + lte + '</LTEBand><NRBand>' + nr + '</NRBand></request>';
+                        fetch('/api/net/net-mode', {
+                                method: 'POST',
+                                headers: { '__RequestVerificationToken': tok, 'Content-Type': 'application/xml' },
+                                body: xml
+                        }).then(() => { alert("CPE: " + msg); setTimeout(window.update, 1000); });
+                });
+        };
+        window.rebootDevice = function() {
+                if (confirm("Reboot Device ?")) {
+                        fetch('/html/home.html').then(r => r.text()).then(h => {
+                                var tok = h.split('name="csrf_token" content="')[1].split('"')[0];
+                                var xml = '<?xml version="1.0" encoding="UTF-8"?><request><Control>1</Control></request>';
+                                fetch('/api/device/control', {
+                                        method: 'POST',
+                                        headers: { '__RequestVerificationToken': tok, 'Content-Type': 'application/xml' },
+                                        body: xml
+                                }).then(() => { alert("Rebooting..."); });
+                        });
+                }
+        };
+        window.runAILab = function() {
+                let rsrp = parseFloat(document.getElementById('v-rsrp').innerText) || -140;
+                let sinr = parseFloat(document.getElementById('v-sinr').innerText) || -20;
+                let inputB = document.getElementById('inp-lte');
+                if (sinr > 15 && rsrp > -90) { inputB.value = "1,3,7,20,32,n78"; }
+                else if (sinr > 8) { inputB.value = "1,3,7,n78"; }
+                else if (sinr > 2) { inputB.value = "1,3,20,n78"; }
+                else { inputB.value = "20,1"; }
+                inputB.style.backgroundColor = "#220";
+                setTimeout(() => { inputB.style.backgroundColor = "#000"; }, 500);
+        };
+        window.addBand = function(b) {
+                var i = document.getElementById('inp-lte');
+                if (i.value === 'AUTO') i.value = '';
+                var current = i.value.trim() ? i.value.split(',') : [];
+                if (current.indexOf(b) === -1) { current.push(b); i.value = current.join(','); }
+        };
+        window.setVal = function(v) {
+                document.getElementById('inp-lte').value = v;
+        };
+        window.openAnalytics = function() {
+                let win = window.open("", "_blank");
+                win.document.write(`<html><head><title>HUAWEI ANALYTICS</title><style>
+                        body{background:#050505;color:#0f0;font-family:monospace;padding:10px;margin:0;overflow:hidden;}
+                        #charts{display:flex;flex-direction:column;gap:10px;width:100%;height:calc(100vh - 50px);padding:10px;box-sizing:border-box;}
+                        .chart-container{flex:1;min-height:140px;display:flex;flex-direction:column;background:#111;border:1px solid #333;position:relative;}
+                        .chart-label{color:red;font-weight:bold;padding:4px 8px;text-transform:uppercase;font-size:11px;background:#000;border-bottom:1px solid #222;z-index:10;}
+                        .val-display{float:right;color:#0af;}
+                        .canvas-wrapper{flex:1;overflow-x:auto;overflow-y:hidden;width:100%;background:#080808;display:block;}
+                        .canvas-wrapper::-webkit-scrollbar {height:10px;display:block;}
+                        .canvas-wrapper::-webkit-scrollbar-track {background: #111;}
+                        .canvas-wrapper::-webkit-scrollbar-thumb {background:#444;border-radius:5px;border:1px solid #222;}
+                        canvas{display:block;height:100%;}
+                </style></head><body><h1 style="color:#2b2;border-bottom:1px solid #2b2;margin:5px;font-size:16px;">LIVE SIGNAL ANALYTICS</h1><div id="charts"></div><script>
+                        const createChart = (id, label) => {
+                                let div = document.createElement('div');
+                                div.className = 'chart-container';
+                                div.innerHTML = '<div class="chart-label">'+label+' <span id="cur-'+id+'" class="val-display">--</span></div><div class="canvas-wrapper"><canvas id="canvas-'+id+'"></canvas></div>';
+                                document.getElementById('charts').appendChild(div);
+                                return { id, data: [] };
+                        };
+                        const charts = [createChart('rsrp', '4G RSRP'), createChart('sinr', '4G SINR'), createChart('nrsrp', '5G RSRP'), createChart('nsinr', '5G SINR')];
+                        
+                        function redraw() {
+                                charts.forEach(c => {
+                                        const canvas = document.getElementById('canvas-'+c.id);
+                                        const wrapper = canvas.parentElement;
+                                        const ctx = canvas.getContext('2d');
+                                        const pointDist = 70;
+                                        
+                                        canvas.width = Math.max(wrapper.clientWidth, c.data.length * pointDist);
+                                        canvas.height = wrapper.clientHeight;
+                                        
+                                        if(c.data.length < 2) return;
+                                        ctx.clearRect(0,0,canvas.width,canvas.height);
+                                        let vals = c.data.map(d => d.val);
+                                        let min = Math.min(...vals) - 2; let max = Math.max(...vals) + 2;
+                                        
+                                        ctx.strokeStyle = '#0f0'; ctx.lineWidth = 2; ctx.beginPath();
+                                        c.data.forEach((entry, i) => {
+                                                let x = i * pointDist + 40;
+                                                let y = canvas.height - ((entry.val - min) / (max - min) * (canvas.height - 80)) - 50;
+                                                if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+                                                
+                                                ctx.fillStyle = '#fff'; ctx.font = 'bold 10px Arial';
+                                                ctx.fillText(entry.val, x - 10, y - 12);
+                                                
+                                                ctx.fillStyle = '#888'; ctx.font = '9px monospace';
+                                                ctx.save(); ctx.translate(x, canvas.height - 10); ctx.rotate(-Math.PI/4);
+                                                ctx.fillText(entry.time, 0, 0); ctx.restore();
+                                        });
+                                        ctx.stroke();
+                                        wrapper.scrollLeft = canvas.width;
+                                });
+                        }
+
+                        window.addEventListener('message', (e) => {
+                                try {
+                                        const payload = JSON.parse(e.data);
+                                        const now = new Date();
+                                        const timeStr = now.getHours() + ':' + 
+                                                      now.getMinutes().toString().padStart(2, '0') + ':' + 
+                                                      now.getSeconds().toString().padStart(2, '0');
+                                        
+                                        charts.forEach(c => {
+                                                let v = parseFloat(payload[c.id]);
+                                                if(!isNaN(v)) {
+                                                        document.getElementById('cur-'+c.id).innerText = v;
+                                                        c.data.push({val: v, time: timeStr});
+                                                }
+                                        });
+                                        redraw();
+                                } catch(err) {}
+                        });
+                        window.onresize = redraw;
+                <\/script></body></html>`);
+                window.analyticsWin = win;
+        };
+        window.applyB = function() {
+                var valText = document.getElementById('inp-lte').value.trim().toUpperCase();
+                if (!valText || valText === "AUTO") {
+                        window.sendNetMode('00', '7FFFFFFFFFFFFFFF', '4000000000000000006', 'AUTO');
+                        return;
+                }
+                var lteMask = 0n, nrMask = 0n;
+                valText.split(',').forEach(n => {
+                        let s = n.trim().toLowerCase();
+                        if (s.startsWith('n')) {
+                                let num = parseInt(s.substring(1));
+                                if (!isNaN(num)) nrMask += (1n << (BigInt(num) - 1n));
+                        } else {
+                                let num = parseInt(s);
+                                if (!isNaN(num)) lteMask += (1n << (BigInt(num) - 1n));
+                        }
+                });
+                let lHex = lteMask === 0n ? '7FFFFFFFFFFFFFFF' : lteMask.toString(16);
+                let nHex = nrMask === 0n ? '4000000000000000006' : nrMask.toString(16);
+                window.sendNetMode('00', lHex, nHex, "SET: " + valText);
+        };
+        window.extract = function(tag, data) {
+                var re = new RegExp('<' + tag + '>(.*?)<\/' + tag + '>', 'i');
+                var m = data.match(re);
+                return (m && m[1] !== undefined && m[1] !== "") ? m[1] : "---";
+        };
+        window.getSig = function(data, type) {
+                let tags = {'nrsrp':['nr_rsrp','nrrsrp','Z5g_rsrp','nrrsrp0'],'nrsrq':['nr_rsrq','nrrsrq','Z5g_sinr','nrrsrq0'],'nsinr':['nr_sinr','nrsinr','Z5g_sinr','nrsinr0']};
+                if (!tags[type]) return extract(type, data);
+                for (let t of tags[type]) {
+                        let v = extract(t, data);
+                        if (v !== "---" && v !== "" && v !== null) return v;
+                }
+                return "---";
+        };
+        window.update = function() {
+                if (!document.getElementById('t-content') || document.getElementById('t-content').style.display === 'none') return;
+                fetch('/api/device/signal').then(r => r.text()).then(d => {
+                        let sigData = {rsrp:extract('rsrp',d),rsrq:extract('rsrq',d),sinr:extract('sinr',d),nrsrp:getSig(d,'nrsrp'),nrsrq:getSig(d,'nrsrq'),nsinr:getSig(d,'nsinr')};
+                        if (window.analyticsWin && !window.analyticsWin.closed) window.analyticsWin.postMessage(JSON.stringify(sigData), "*");
+                        [{id:'rsrp',min:-120,max:-60,u:'dBm'},{id:'rsrq',min:-20,max:-3,u:'dB'},{id:'sinr',min:-5,max:25,u:'dB'},{id:'nrsrp',min:-120,max:-60,u:'dBm'},{id:'nrsrq',min:-20,max:-3,u:'dB'},{id:'nsinr',min:-5,max:25,u:'dB'}].forEach(s => {
+                                let v = sigData[s.id];
+                                let el = document.getElementById('v-'+s.id);
+                                if(el) el.innerHTML = (v === "---") ? "---" : v + (s.u==='dBm'?'dBm':'dB');
+                                var pc = Math.max(0, Math.min(100, ((parseFloat(v)-s.min)/(s.max-s.min))*100));
+                                var bar = document.getElementById('b-'+s.id);
+                                if(bar){ bar.style.width=pc+"%"; bar.style.backgroundColor=pc<40?"#f00":(pc<75?"#fa0":"#0f0"); }
+                        });
+                        var cid = extract('cell_id', d);
+                        if (cid !== "---") {
+                                var enb = Math.floor(parseInt(cid) / 256);
+                                document.getElementById('v-enb').innerHTML = '<a href="https://www.lteitaly.it/it/internal/map.php#bts=22288.'+enb+'" target="_blank" style="color:#0f0;text-decoration:underline;">'+enb+'</a>';
+                                document.getElementById('v-cell').innerHTML = cid;
+                        }
+                        document.getElementById('v-pci').innerHTML = extract('pci', d);
+                });
+        };
+        window.toggleMenu = function() {
+                var c = document.getElementById('t-content'), b = document.getElementById('t-toggle');
+                if (c.style.display === 'none' || !c.style.display) {
+                        c.style.display = 'block'; b.innerHTML = '▲ CLOSE';
+                        fetch('/api/device/information').then(r => r.text()).then(d => {
+                                document.getElementById('v-model').innerHTML = extract('DeviceName', d);
+                                document.getElementById('v-sw').innerHTML = extract('SoftwareVersion', d);
+                                document.getElementById('v-hw').innerHTML = extract('HardwareVersion', d);
+                                document.getElementById('v-imei').innerHTML = extract('Imei', d);
+                        });
+                        fetch('/api/device/antenna_type').then(r => r.text()).then(d => {
+                                let a1 = extract('antenna1type', d) === '1' ? 'EXT' : 'INT';
+                                let a2 = extract('antenna2type', d) === '1' ? 'EXT' : 'INT';
+                                document.getElementById('v-ant').innerHTML = a1 + '/' + a2;
+                        });
+                } else { c.style.display = 'none'; b.innerHTML = '▼ OPEN HUAWEI HACKBAND v1.1'; }
+        };
+        (function() {
+                var style = "<style>#hack-bar{position:fixed;top:0;left:0;width:100%;z-index:999999;font-family:sans-serif;background:#0a0a0a;color:#eee;}#t-toggle{width:100%;height:20px;line-height:20px;text-align:center;cursor:pointer;background:#2b2;color:#000;font-size:12px;font-weight:bold;}.grid{display:flex;gap:10px;padding:10px;}.box{flex:1;padding:10px;border:1px solid #333;background:#050505;border-radius:4px;min-width:0;}.title{font-size:11px;color:red;font-weight:bold;margin-bottom:8px;text-transform:uppercase;}.bb-w{width:100%;height:8px;background:#222;margin:4px 0;border-radius:2px;overflow:hidden;}.bb-f{height:100%;transition:0.3s;}.btn{padding:6px;cursor:pointer;border-radius:3px;border:none;color:#fff;font-size:10px;font-weight:bold;text-align:center;background:#333;}.btn-main{padding:10px;font-size:11px;}.info-table{width:100%;font-size:13px;border-collapse:collapse;}.info-table td{padding:3px 0;}.info-table td:last-child{text-align:right;color:#0f0;font-weight:bold;}.legend{padding:10px;font-size:12px;background:#111;border-top:1px solid #222;display:flex;gap:20px;}.band-row{display:flex;gap:15px;align-items:center;padding:5px 10px;font-size:11px;color:#aaa;border-bottom:1px solid #222;}.band-list{display:flex;gap:5px;flex-wrap:wrap;}.b-btn{cursor:pointer;background:#1a1a1a;padding:3px 6px;border:1px solid #444;color:#ccc;font-size:10px;margin:1px;display:inline-block;border-radius:2px;}.gh-link{margin-left:auto;color:#2b2;text-decoration:none;font-size:11px;}</style>";
+                var html = '<div id="hack-bar"><div id="t-toggle" onclick="toggleMenu()">▼ OPEN HUAWEI HACKBAND v1.1</div><div id="t-content" style="display:none;"><div class="grid">' +
+                '<div class="box"><div class="title">4G SIGNAL</div><table class="info-table"><tr><td>RSRP:</td><td id="v-rsrp"></td></tr></table><div class="bb-w"><div id="b-rsrp" class="bb-f"></div></div><table class="info-table"><tr><td>RSRQ:</td><td id="v-rsrq"></td></tr></table><div class="bb-w"><div id="b-rsrq" class="bb-f"></div></div><table class="info-table"><tr><td>SINR:</td><td id="v-sinr"></td></tr></table><div class="bb-w"><div id="b-sinr" class="bb-f"></div></div></div>' +
+                '<div class="box"><div class="title">5G SIGNAL</div><table class="info-table"><tr><td>NR RSRP:</td><td id="v-nrsrp"></td></tr></table><div class="bb-w"><div id="b-nrsrp" class="bb-f"></div></div><table class="info-table"><tr><td>NR RSRQ:</td><td id="v-nrsrq"></td></tr></table><div class="bb-w"><div id="b-nrsrq" class="bb-f"></div></div><table class="info-table"><tr><td>NR SINR:</td><td id="v-nsinr"></td></tr></table><div class="bb-w"><div id="b-nsinr" class="bb-f"></div></div></div>' +
+                '<div class="box"><div class="title" style="color:yellow;">HARDWARE</div><table class="info-table"><tr><td>MOD:</td><td id="v-model" style="color:#0f0;"></td></tr><tr><td>ANT:</td><td id="v-ant" style="color:#0af;"></td></tr><tr><td>SW:</td><td id="v-sw" style="color:#0f0;font-size:10px;"></td></tr><tr><td>HW:</td><td id="v-hw"></td></tr><tr><td>IMEI:</td><td id="v-imei"></td></tr></table>' +
+                '<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:4px;margin-top:10px;">' + 
+                '<div class="btn btn-main" style="background:#606;" onclick="window.runAILab()" title="Auto-tune bands based on signal quality">AI LAB</div>' +
+                '<div class="btn btn-main" style="background:#048;" onclick="window.open(\'https://www.speedtest.net\')" title="Open speed test in new tab">OOKLA</div>' +
+                '<div class="btn btn-main" style="background:#f60;" onclick="window.openAnalytics()" title="Show live signal charts">CHARTS</div>' +
+                '<div class="btn btn-main" style="background:#b00;" onclick="window.rebootDevice()" title="Restart the modem">REBOOT</div>' +
+                '<div class="btn btn-main" style="background:#444;" onclick="window.exitHack()" title="Close this hack and reset page">EXIT</div></div></div>' +
+                '<div class="box"><div class="title">CELL & BANDS</div><table class="info-table"><tr><td>ENB:</td><td id="v-enb"></td></tr><tr><td>CELL:</td><td id="v-cell"></td></tr><tr><td>PCI:</td><td id="v-pci"></td></tr><tr><td>CFG:</td><td id="v-cfg" style="color:#0af;">1,3,7,20,32,n78</td></tr></table>' +
+                '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:5px;margin-top:10px;">' +
+                '<div class="btn" style="background:red;" onclick="window.setVal(\'1,3,7,n78\')" title="Preset: Main bands + 5G N78">N78</div>' +
+                '<div class="btn" style="background:#06f;" onclick="window.setVal(\'1,3,7,20,32\')" title="Preset: All 4G bands">4G</div>' +
+                '<div class="btn" style="background:green;" onclick="window.setVal(\'AUTO\')" title="Reset to default modem management">AUTO</div>' +
+                '<div class="btn" style="background:#2b2;color:#000;" onclick="window.applyB()" title="Apply current selection to device">SET</div></div>' +
+                '<input id="inp-lte" type="text" style="width:100%;margin-top:8px;background:#000;color:#0f0;border:1px solid #444;padding:4px;" value="" placeholder="1,3,n78"></div></div>' +
+                '<div class="legend"><b style="color:#fff;">Signal Quality (SINR):</b> <span style="color:#0f0;">>20 Excellent</span> <span style="color:yellow;">13-20 Good</span> <span style="color:orange;">0-13 Fair</span> <span style="color:red;"><0 Poor</span> <a href="https://github.com/Renato-4132/Huawei-CPE-Band-Selection" target="_blank" class="gh-link">GitHub Project</a></div>' +
+                '<div class="band-row">4G FDD: <div class="band-list">' + ["1","3","7","8","18","19","20","21","26","28","32"].map(b => `<span class="b-btn" onclick="window.addBand('${b}')">B${b}</span>`).join('') + '</div></div>' +
+                '<div class="band-row">4G TDD: <div class="band-list">' + ["34","38","39","40","41","42","43"].map(b => `<span class="b-btn" onclick="window.addBand('${b}')">B${b}</span>`).join('') + '</div></div>' +
+                '<div class="band-row">5G NR: <div class="band-list">' + ["1","3","5","7","8","20","28","38","40","41","77","78","79"].map(b => `<span class="b-btn" onclick="window.addBand('n${b}')">N${b}</span>`).join('') + '<span class="b-btn" style="background:#444;color:#fff;margin-left:8px;" onclick="window.setVal(\'\')">RESET</span></div></div>' +
+                '</div></div>';
+                document.body.insertAdjacentHTML("afterbegin", style + html);
+        })();
+})();
